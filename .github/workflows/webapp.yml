@@ -1,0 +1,172 @@
+# Layer 4: Web App Stack (Lambda + S3 frontend)
+# Input: apply or destroy. Destroy requires typed confirmation.
+
+name: "Web App — Apply / Destroy"
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to perform"
+        required: true
+        type: choice
+        options:
+          - apply
+          - destroy
+      confirm_destroy:
+        description: "Type DESTROY to confirm teardown (required for destroy only)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write   # OIDC
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  TF_ROOT: terraform/webapp
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || 'football-life-tfstate-ap-south-1' }}
+  TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE || 'football-life-tfstate-locks' }}
+
+jobs:
+  # ──────────────────────────────────────────────
+  # 1. Plan
+  # ──────────────────────────────────────────────
+  plan:
+    name: "Terraform Plan (${{ inputs.action }})"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate destroy confirmation
+        if: inputs.action == 'destroy' && inputs.confirm_destroy != 'DESTROY'
+        run: |
+          echo "::error::Destroy requires typing DESTROY in the confirm_destroy input."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Python
+        if: inputs.action == 'apply'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Package Lambda Application
+        if: inputs.action == 'apply'
+        run: python scripts/package_lambda.py
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=webapp/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}"
+
+      - name: Terraform Format Check
+        if: inputs.action == 'apply'
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        if: inputs.action == 'apply'
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform validate
+
+      - name: Terraform Plan (apply)
+        if: inputs.action == 'apply'
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform plan -out=tfplan -input=false
+
+      - name: Terraform Plan (destroy)
+        if: inputs.action == 'destroy'
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform plan -destroy -out=tfplan -input=false
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: webapp-tfplan
+          path: ${{ env.TF_ROOT }}/tfplan
+          retention-days: 5
+
+
+  # ──────────────────────────────────────────────
+  # 2. Apply / Destroy (requires approval)
+  # ──────────────────────────────────────────────
+  execute:
+    name: "Terraform ${{ inputs.action }}"
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: production   # requires reviewer approval
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Python
+        if: inputs.action == 'apply'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Package Lambda Application
+        if: inputs.action == 'apply'
+        run: python scripts/package_lambda.py
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=webapp/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}"
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: webapp-tfplan
+          path: ${{ env.TF_ROOT }}
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform apply -auto-approve -input=false tfplan
+
+      - name: Deploy Frontend to S3
+        if: inputs.action == 'apply'
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          API_URL=$(terraform output -raw api_endpoint_url)
+          FRONTEND_BUCKET=$(terraform output -raw frontend_bucket_name)
+          WEBSITE_URL=$(terraform output -raw website_endpoint)
+
+          echo "Injecting API URL into frontend/config.js: ${API_URL}"
+          echo "window.__API_BASE__ = '${API_URL}';" > ../../frontend/config.js
+
+          echo "Syncing frontend assets to s3://${FRONTEND_BUCKET}/"
+          aws s3 sync ../../frontend/ "s3://${FRONTEND_BUCKET}/" --delete
+
+          echo "### :rocket: Web App Deployed Successfully" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Website URL:** [http://${WEBSITE_URL}](http://${WEBSITE_URL})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **API Function URL:** \`${API_URL}\`" >> "$GITHUB_STEP_SUMMARY"
+

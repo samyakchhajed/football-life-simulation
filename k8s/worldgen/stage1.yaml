@@ -1,0 +1,76 @@
+# ── Worldgen Stage 1 (Seeds 1–10, 10 Worlds) ──────────────────────────────────
+# Includes Namespace, Pod Identity ServiceAccount, and Indexed Job.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: worldgen
+  labels:
+    app.kubernetes.io/part-of: football-life-simulation
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: worldgen-worker
+  namespace: worldgen
+  labels:
+    app.kubernetes.io/name: worldgen-worker
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: worldgen-stage1
+  namespace: worldgen
+  labels:
+    app: worldgen-stage1
+    stage: "1"
+spec:
+  completions: 10
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 2
+  maxFailedIndexes: 3
+  template:
+    metadata:
+      labels:
+        app: worldgen-stage1
+    spec:
+      serviceAccountName: worldgen-worker
+      restartPolicy: Never
+      containers:
+        - name: world-worker
+          image: ${{ secrets.ECR_IMAGE_URL }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              python scripts/run_100_season_burnin.py
+              --seed 1
+              --world-index "${JOB_COMPLETION_INDEX}"
+              --world-count 10
+              --output-dir /results
+          env:
+            - name: JOB_COMPLETION_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+            - name: WORLD_RESULTS_BUCKET
+              value: "football-life-templates-ap-south-1"
+            - name: DYNAMODB_TABLE
+              value: "world_template_catalog"
+            - name: AWS_REGION
+              value: "ap-south-1"
+          resources:
+            requests:
+              cpu: "1500m"
+              memory: "4Gi"
+            limits:
+              cpu: "3000m"
+              memory: "8Gi"
+          volumeMounts:
+            - name: worker-results
+              mountPath: /results
+      volumes:
+        - name: worker-results
+          emptyDir: {}

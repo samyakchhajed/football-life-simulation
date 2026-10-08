@@ -1,0 +1,213 @@
+/* ==============================================================================
+   EFOOTBALL & FIFA INSPIRED PLAYER & CLUB CARDS
+   ============================================================================== */
+
+.player-card {
+  position: relative;
+  width: 220px;
+  height: 320px;
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: var(--shadow-lg);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  overflow: hidden;
+  user-select: none;
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+}
+
+.player-card:hover {
+  transform: translateY(-6px) scale(1.02);
+  box-shadow: 0 20px 35px -5px rgba(0, 0, 0, 0.7), var(--shadow-glow);
+}
+
+/* Card Tiers */
+.card-bronze {
+  background: linear-gradient(135deg, #451a03 0%, #78350f 50%, #291004 100%);
+  border-color: #a16207;
+}
+
+.card-silver {
+  background: linear-gradient(135deg, #1e293b 0%, #475569 50%, #0f172a 100%);
+  border-color: #94a3b8;
+}
+
+.card-gold {
+  background: linear-gradient(135deg, #78350f 0%, #d97706 50%, #451a03 100%);
+  border-color: #fde047;
+  box-shadow: 0 8px 20px rgba(217, 119, 6, 0.25);
+}
+
+.card-elite {
+  background: linear-gradient(135deg, #1e1b4b 0%, #4338ca 50%, #0f172a 100%);
+  border-color: #818cf8;
+  box-shadow: 0 8px 25px rgba(99, 102, 241, 0.35);
+}
+
+.card-best {
+  background: linear-gradient(135deg, #022c22 0%, #059669 50%, #064e3b 100%);
+  border-color: #34d399;
+  box-shadow: 0 8px 30px rgba(16, 185, 129, 0.4);
+}
+
+.card-god-level {
+  background: linear-gradient(135deg, #451a03 0%, #78350f 15%, #b45309 35%, #f59e0b 55%, #fef08a 70%, #d97706 85%, #78350f 100%);
+  border: 2px solid #fef08a;
+  box-shadow: 0 0 30px rgba(245, 158, 11, 0.65), inset 0 0 15px rgba(254, 240, 138, 0.4);
+  animation: gold-shimmer 3.5s infinite linear;
+}
+
+@keyframes gold-shimmer {
+  0% { filter: hue-rotate(-5deg) brightness(1); }
+  50% { filter: hue-rotate(10deg) brightness(1.15); }
+  100% { filter: hue-rotate(-5deg) brightness(1); }
+}
+
+.card-tier-pill {
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  backdrop-filter: blur(6px);
+  display: inline-block;
+  white-space: nowrap;
+}
+
+/* Card Header: Rating, Position, Country */
+.card-header-badge {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.card-rating-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.card-rating-num {
+  font-size: 2.4rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #ffffff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.card-pos-tag {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--accent-gold);
+  margin-top: 2px;
+}
+
+.card-country-tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Avatar Placeholder / Shield */
+.card-avatar-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 90px;
+}
+
+.card-avatar-icon {
+  font-size: 3.5rem;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+}
+
+/* Player Nameplate */
+.card-nameplate {
+  text-align: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 4px 0;
+  margin: 4px 0;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+}
+
+.card-player-name {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.card-club-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-blue);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Attributes Grid */
+.card-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+}
+
+.stat-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.stat-value {
+  color: #ffffff;
+  font-weight: 800;
+}
+
+/* Club Crest Badge */
+.club-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: var(--shadow-lg);
+  transition: border-color 0.2s;
+}
+
+.club-crest {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 1.2rem;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+}

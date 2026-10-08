@@ -1,0 +1,167 @@
+# ── Worldgen Coordinator Deployment & LoadBalancer Service ────────────────────
+# Exposes batch status, health checks, and metrics for EKS load-balancer experiments.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worldgen-coordinator
+  namespace: worldgen
+  labels:
+    app: worldgen-coordinator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: worldgen-coordinator
+  template:
+    metadata:
+      labels:
+        app: worldgen-coordinator
+    spec:
+      serviceAccountName: worldgen-worker
+      containers:
+        - name: coordinator
+          image: ${{ secrets.ECR_IMAGE_URL }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+            - |
+              import http.server, socketserver, json, os, time
+              try:
+                  import boto3
+                  dynamodb = boto3.client('dynamodb', region_name=os.getenv('AWS_REGION', 'ap-south-1'))
+              except Exception:
+                  dynamodb = None
+
+              PORT = 8080
+              TABLE_NAME = os.getenv('DYNAMODB_TABLE', 'world_template_catalog')
+              BUCKET_NAME = os.getenv('WORLD_RESULTS_BUCKET', 'football-life-templates-ap-south-1')
+              REGION = os.getenv('AWS_REGION', 'ap-south-1')
+              request_counter = 0
+
+              def get_catalog_stats():
+                  if not dynamodb:
+                      return {'total': 0, 'approved': 0, 'rejected': 0, 'investigating': 0, 'error': 'boto3 unavailable'}
+                  try:
+                      resp = dynamodb.scan(
+                          TableName=TABLE_NAME,
+                          ProjectionExpression="template_id, quality_status"
+                      )
+                      items = resp.get('Items', [])
+                      approved = sum(1 for it in items if it.get('quality_status', {}).get('S') == 'APPROVED')
+                      rejected = sum(1 for it in items if it.get('quality_status', {}).get('S') == 'REJECTED')
+                      investigating = sum(1 for it in items if it.get('quality_status', {}).get('S') == 'INVESTIGATING')
+                      return {
+                          'total': len(items),
+                          'approved': approved,
+                          'rejected': rejected,
+                          'investigating': investigating,
+                          'scanned_count': resp.get('ScannedCount', len(items))
+                      }
+                  except Exception as exc:
+                      return {'total': 0, 'approved': 0, 'rejected': 0, 'investigating': 0, 'error': str(exc)}
+
+              class CoordinatorHandler(http.server.BaseHTTPRequestHandler):
+                  def log_message(self, format, *args):
+                      pass
+
+                  def do_GET(self):
+                      global request_counter
+                      request_counter += 1
+                      if self.path in ('/', '/healthz'):
+                          self.send_response(200)
+                          self.send_header('Content-Type', 'application/json')
+                          self.end_headers()
+                          self.wfile.write(json.dumps({'status': 'HEALTHY', 'timestamp': time.time()}).encode())
+                      elif self.path == '/status':
+                          stats = get_catalog_stats()
+                          self.send_response(200)
+                          self.send_header('Content-Type', 'application/json')
+                          self.end_headers()
+                          payload = {
+                              'coordinator': 'worldgen-coordinator',
+                              'region': REGION,
+                              'dynamodb_table': TABLE_NAME,
+                              'templates_bucket': BUCKET_NAME,
+                              'batch_progress': stats,
+                              'status': 'OPERATIONAL'
+                          }
+                          self.wfile.write(json.dumps(payload, indent=2).encode())
+                      elif self.path == '/metrics':
+                          stats = get_catalog_stats()
+                          self.send_response(200)
+                          self.send_header('Content-Type', 'text/plain; version=0.0.4')
+                          self.end_headers()
+                          metrics = (
+                              f"# HELP coordinator_requests_total Total HTTP requests served by coordinator\n"
+                              f"# TYPE coordinator_requests_total counter\n"
+                              f"coordinator_requests_total {request_counter}\n"
+                              f"# HELP worldgen_templates_registered_total Total world templates registered in DynamoDB\n"
+                              f"# TYPE worldgen_templates_registered_total gauge\n"
+                              f"worldgen_templates_registered_total {stats.get('total', 0)}\n"
+                              f"# HELP worldgen_templates_approved_total World templates approved by quality gates\n"
+                              f"# TYPE worldgen_templates_approved_total gauge\n"
+                              f"worldgen_templates_approved_total {stats.get('approved', 0)}\n"
+                              f"# HELP worldgen_templates_rejected_total World templates rejected by quality gates\n"
+                              f"# TYPE worldgen_templates_rejected_total gauge\n"
+                              f"worldgen_templates_rejected_total {stats.get('rejected', 0)}\n"
+                          )
+                          self.wfile.write(metrics.encode())
+                      else:
+                          self.send_response(404)
+                          self.end_headers()
+
+              with socketserver.TCPServer(("", PORT), CoordinatorHandler) as httpd:
+                  print(f"Coordinator listening on port {PORT}")
+                  httpd.serve_forever()
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: AWS_REGION
+              value: "ap-south-1"
+            - name: WORLD_RESULTS_BUCKET
+              value: "football-life-templates-ap-south-1"
+            - name: DYNAMODB_TABLE
+              value: "world_template_catalog"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: worldgen-coordinator-lb
+  namespace: worldgen
+  labels:
+    app: worldgen-coordinator
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+spec:
+  type: LoadBalancer
+  selector:
+    app: worldgen-coordinator
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      name: http
+

@@ -1,0 +1,70 @@
+# Layer 1: Bootstrap (S3 Remote State Bucket + DynamoDB Lock Table)
+# Run once on-demand to initialize Terraform remote backend storage.
+
+name: "Bootstrap — State Backend (One-Time)"
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write   # OIDC
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  TF_ROOT: terraform/bootstrap
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || 'football-life-tfstate-ap-south-1' }}
+  TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE || 'football-life-tfstate-locks' }}
+
+jobs:
+  bootstrap:
+    name: "Bootstrap Remote State"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform init
+
+      - name: Idempotent State Import & Apply
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          echo "Checking if S3 state bucket '$TF_STATE_BUCKET' already exists..."
+          if aws s3api head-bucket --bucket "$TF_STATE_BUCKET" 2>/dev/null; then
+            echo "Importing existing S3 bucket into state..."
+            terraform import \
+              -var="aws_region=${{ env.AWS_REGION }}" \
+              -var="state_bucket_name=${TF_STATE_BUCKET}" \
+              -var="lock_table_name=${TF_LOCK_TABLE}" \
+              aws_s3_bucket.terraform_state "$TF_STATE_BUCKET" || true
+          fi
+
+          echo "Checking if DynamoDB lock table '$TF_LOCK_TABLE' already exists..."
+          if aws dynamodb describe-table --table-name "$TF_LOCK_TABLE" --region "${{ env.AWS_REGION }}" 2>/dev/null; then
+            echo "Importing existing DynamoDB lock table into state..."
+            terraform import \
+              -var="aws_region=${{ env.AWS_REGION }}" \
+              -var="state_bucket_name=${TF_STATE_BUCKET}" \
+              -var="lock_table_name=${TF_LOCK_TABLE}" \
+              aws_dynamodb_table.terraform_locks "$TF_LOCK_TABLE" || true
+          fi
+
+          terraform apply -auto-approve \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="state_bucket_name=${TF_STATE_BUCKET}" \
+            -var="lock_table_name=${TF_LOCK_TABLE}"
+
+          echo "### :white_check_mark: Bootstrap Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **S3 State Bucket**: \`${TF_STATE_BUCKET}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **DynamoDB Lock Table**: \`${TF_LOCK_TABLE}\`" >> "$GITHUB_STEP_SUMMARY"

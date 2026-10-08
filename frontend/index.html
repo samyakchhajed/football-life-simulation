@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Football Life Engine — Career Dashboard</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/cards.css">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="brand-title">
+      ⚽ Football Life <span>Simulation</span>
+    </div>
+
+    <div class="header-user-status">
+      <div id="header-season-num" style="font-weight:800; font-size:1.1rem; color:var(--accent-blue);">Season 1</div>
+      <div id="header-user-chip" class="user-chip" style="display:none;"></div>
+      
+      <button id="my-club-btn" class="btn">🛡️ My Club</button>
+      <button id="all-clubs-btn" class="btn">🌐 All Clubs</button>
+      <button id="timeline-btn" class="btn">📜 Timeline</button>
+      <button id="compare-btn" class="btn">⚔️ Compare</button>
+      <button id="saves-btn" class="btn">💾 Saves</button>
+      <button id="restart-btn" class="btn" style="border-color:rgba(239,68,68,0.4); color:#fca5a5;">🔄 Restart</button>
+      <button id="next-step-btn" class="btn btn-primary">Continue ▶</button>
+    </div>
+  </header>
+
+  <!-- 8-Stop Season Stepper -->
+  <nav class="season-stepper-bar">
+    <div id="step-indicator-1" class="step-item active">
+      <div class="step-num">1</div>
+      <span>League Season</span>
+    </div>
+    <div id="step-indicator-2" class="step-item">
+      <div class="step-num">2</div>
+      <span>Cup Qualifiers</span>
+    </div>
+    <div id="step-indicator-3" class="step-item">
+      <div class="step-num">3</div>
+      <span>Cup Results</span>
+    </div>
+    <div id="step-indicator-4" class="step-item">
+      <div class="step-num">4</div>
+      <span>Awards Gala</span>
+    </div>
+    <div id="step-indicator-5" class="step-item">
+      <div class="step-num">5</div>
+      <span>Career Report</span>
+    </div>
+    <div id="step-indicator-6" class="step-item">
+      <div class="step-num">6</div>
+      <span>Offseason Choices</span>
+    </div>
+    <div id="step-indicator-7" class="step-item">
+      <div class="step-num">7</div>
+      <span>Transfer Window</span>
+    </div>
+    <div id="step-indicator-8" class="step-item">
+      <div class="step-num">8</div>
+      <span>New Season</span>
+    </div>
+  </nav>
+
+  <!-- Main View Container -->
+  <main id="main-content" class="main-content">
+    <!-- Dynamic Stage Content Injected by app.js -->
+  </main>
+
+  <!-- Modal Container -->
+  <div id="modal-container"></div>
+
+  <!-- Runtime API Configuration -->
+  <script src="config.js"></script>
+
+  <!-- Main Application Script (ES Module) -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
+

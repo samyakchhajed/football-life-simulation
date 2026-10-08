@@ -1,0 +1,132 @@
+# Layer 3: EKS Stack (VPC, cluster, node groups, access entry, monitoring)
+# Input: apply or destroy. Destroy requires typed confirmation.
+
+name: "EKS — Apply / Destroy"
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action to perform"
+        required: true
+        type: choice
+        options:
+          - apply
+          - destroy
+      confirm_destroy:
+        description: "Type DESTROY to confirm teardown (required for destroy only)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write   # OIDC
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  TF_ROOT: terraform/eks
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || 'football-life-tfstate-ap-south-1' }}
+  TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE || 'football-life-tfstate-locks' }}
+
+jobs:
+  # ──────────────────────────────────────────────
+  # 1. Plan
+  # ──────────────────────────────────────────────
+  plan:
+    name: "Terraform Plan (${{ inputs.action }})"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate destroy confirmation
+        if: inputs.action == 'destroy' && inputs.confirm_destroy != 'DESTROY'
+        run: |
+          echo "::error::Destroy requires typing DESTROY in the confirm_destroy input."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=eks/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}"
+
+      - name: Terraform Format Check
+        if: inputs.action == 'apply'
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        if: inputs.action == 'apply'
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform validate
+
+      - name: Terraform Plan (apply)
+        if: inputs.action == 'apply'
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform plan -out=tfplan -input=false -var="owner_iam_user_arn=${{ secrets.OWNER_IAM_USER_ARN || '' }}"
+
+      - name: Terraform Plan (destroy)
+        if: inputs.action == 'destroy'
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform plan -destroy -out=tfplan -input=false -var="owner_iam_user_arn=${{ secrets.OWNER_IAM_USER_ARN || '' }}"
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: eks-tfplan
+          path: ${{ env.TF_ROOT }}/tfplan
+          retention-days: 5
+
+  # ──────────────────────────────────────────────
+  # 2. Apply / Destroy (requires approval)
+  # ──────────────────────────────────────────────
+  execute:
+    name: "Terraform ${{ inputs.action }}"
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: production   # requires reviewer approval
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=eks/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}"
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: eks-tfplan
+          path: ${{ env.TF_ROOT }}
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_ROOT }}
+        run: terraform apply -auto-approve -input=false tfplan
