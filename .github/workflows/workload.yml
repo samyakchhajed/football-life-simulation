@@ -62,11 +62,14 @@ jobs:
       - name: Deploy Coordinator & Stage 1 Jobs
         if: inputs.action == 'apply'
         run: |
+          echo "Ensuring 'worldgen' namespace exists..."
+          kubectl create namespace worldgen --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "Deploying Stage 1 Indexed Job (creates ServiceAccount & 10 World Workers)..."
+          sed "s|\${{ secrets.ECR_IMAGE_URL }}|${IMAGE_URI}|g" k8s/worldgen/stage1.yaml | kubectl apply -f -
+
           echo "Deploying Coordinator Deployment & NLB Service..."
           sed "s|\${{ secrets.ECR_IMAGE_URL }}|${IMAGE_URI}|g" k8s/worldgen/coordinator.yaml | kubectl apply -f -
-
-          echo "Deploying Stage 1 Indexed Job (10 Worlds, 4 parallel workers)..."
-          sed "s|\${{ secrets.ECR_IMAGE_URL }}|${IMAGE_URI}|g" k8s/worldgen/stage1.yaml | kubectl apply -f -
 
           echo "Waiting 15s for pods to schedule..."
           sleep 15
