@@ -10,10 +10,10 @@ ENV PYTHONUNBUFFERED=1 \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application source code, execution scripts, and template assets
+# Copy application source code and execution scripts
 COPY src/ /app/src/
 COPY scripts/ /app/scripts/
-COPY data/ /app/data/
+RUN mkdir -p /app/data
 COPY worker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
