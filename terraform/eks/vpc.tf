@@ -35,14 +35,14 @@ resource "aws_internet_gateway" "igw" {
 # ── Public Subnets ─────────────────────────────────────────────────────────────
 
 resource "aws_subnet" "public" {
-  count                   = length(locals.azs)
+  count                   = length(local.azs)
   vpc_id                  = aws_vpc.eks.id
   cidr_block              = cidrsubnet(var.vpc_cidr, 4, count.index)
-  availability_zone       = locals.azs[count.index]
+  availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
 
   tags = {
-    Name                                        = "${var.cluster_name}-public-${locals.azs[count.index]}"
+    Name                                        = "${var.cluster_name}-public-${local.azs[count.index]}"
     Environment                                 = var.environment
     ManagedBy                                   = "Terraform"
     "kubernetes.io/role/elb"                    = "1"
@@ -53,13 +53,13 @@ resource "aws_subnet" "public" {
 # ── Private Subnets (Worker Nodes) ─────────────────────────────────────────────
 
 resource "aws_subnet" "private" {
-  count             = length(locals.azs)
+  count             = length(local.azs)
   vpc_id            = aws_vpc.eks.id
   cidr_block        = cidrsubnet(var.vpc_cidr, 4, count.index + 8)
-  availability_zone = locals.azs[count.index]
+  availability_zone = local.azs[count.index]
 
   tags = {
-    Name                                        = "${var.cluster_name}-private-${locals.azs[count.index]}"
+    Name                                        = "${var.cluster_name}-private-${local.azs[count.index]}"
     Environment                                 = var.environment
     ManagedBy                                   = "Terraform"
     "kubernetes.io/role/internal-elb"           = "1"
