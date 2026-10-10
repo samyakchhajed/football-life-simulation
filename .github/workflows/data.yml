@@ -55,6 +55,37 @@ jobs:
         working-directory: ${{ env.TF_ROOT }}
         run: terraform validate
 
+      - name: Idempotent Adoption of Existing Resources
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          TEMPLATES_BUCKET="football-life-templates-${{ env.AWS_REGION }}"
+          echo "Checking if S3 templates bucket '$TEMPLATES_BUCKET' already exists..."
+          if aws s3api head-bucket --bucket "$TEMPLATES_BUCKET" 2>/dev/null; then
+            echo "Adopting existing S3 templates bucket..."
+            terraform import aws_s3_bucket.world_templates "$TEMPLATES_BUCKET" || true
+            terraform import aws_s3_bucket_public_access_block.world_templates "$TEMPLATES_BUCKET" || true
+            terraform import aws_s3_bucket_versioning.world_templates "$TEMPLATES_BUCKET" || true
+            terraform import aws_s3_bucket_server_side_encryption_configuration.world_templates "$TEMPLATES_BUCKET" || true
+          fi
+
+          echo "Checking if DynamoDB catalog table exists..."
+          if aws dynamodb describe-table --table-name "world_template_catalog" --region "${{ env.AWS_REGION }}" 2>/dev/null; then
+            echo "Adopting existing DynamoDB catalog table..."
+            terraform import aws_dynamodb_table.template_catalog "world_template_catalog" || true
+          fi
+
+          echo "Checking if ECR repository exists..."
+          if aws ecr describe-repositories --repository-names "football-life-worker" --region "${{ env.AWS_REGION }}" 2>/dev/null; then
+            echo "Adopting existing ECR repository..."
+            terraform import aws_ecr_repository.worker "football-life-worker" || true
+          fi
+
+          echo "Checking if Secrets Manager secret exists..."
+          if aws secretsmanager describe-secret --secret-id "football-life/ecr-image-url" --region "${{ env.AWS_REGION }}" 2>/dev/null; then
+            echo "Adopting existing Secrets Manager secret..."
+            terraform import aws_secretsmanager_secret.ecr_image_url "football-life/ecr-image-url" || true
+          fi
+
       - name: Terraform Plan
         working-directory: ${{ env.TF_ROOT }}
         run: terraform plan -out=tfplan -input=false

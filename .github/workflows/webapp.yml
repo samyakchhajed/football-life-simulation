@@ -86,6 +86,27 @@ jobs:
         working-directory: ${{ env.TF_ROOT }}
         run: terraform validate
 
+      - name: Idempotent Adoption of Existing Resources
+        if: inputs.action == 'apply'
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          FRONTEND_BUCKET="football-life-frontend-${{ env.AWS_REGION }}"
+          echo "Checking if S3 frontend bucket '$FRONTEND_BUCKET' already exists..."
+          if aws s3api head-bucket --bucket "$FRONTEND_BUCKET" 2>/dev/null; then
+            echo "Adopting existing S3 frontend bucket..."
+            terraform import aws_s3_bucket.frontend "$FRONTEND_BUCKET" || true
+            terraform import aws_s3_bucket_website_configuration.frontend "$FRONTEND_BUCKET" || true
+            terraform import aws_s3_bucket_public_access_block.frontend "$FRONTEND_BUCKET" || true
+            terraform import aws_s3_bucket_policy.frontend_public_read "$FRONTEND_BUCKET" || true
+          fi
+
+          echo "Checking if Lambda function exists..."
+          if aws lambda get-function --function-name "football-life-api-prod" --region "${{ env.AWS_REGION }}" 2>/dev/null; then
+            echo "Adopting existing Lambda function..."
+            terraform import aws_lambda_function.api "football-life-api-prod" || true
+            terraform import aws_lambda_function_url.api_url "football-life-api-prod" || true
+          fi
+
       - name: Terraform Plan (apply)
         if: inputs.action == 'apply'
         working-directory: ${{ env.TF_ROOT }}
