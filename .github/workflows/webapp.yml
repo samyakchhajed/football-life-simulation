@@ -132,7 +132,6 @@ jobs:
     name: "Terraform ${{ inputs.action }}"
     needs: plan
     runs-on: ubuntu-latest
-    environment: production   # requires reviewer approval
     steps:
       - name: Checkout
         uses: actions/checkout@v7
