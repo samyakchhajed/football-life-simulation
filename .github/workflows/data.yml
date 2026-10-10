@@ -17,11 +17,8 @@ env:
   TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE || 'football-life-tfstate-locks' }}
 
 jobs:
-  # ──────────────────────────────────────────────
-  # 1. Format, validate, plan
-  # ──────────────────────────────────────────────
-  plan:
-    name: "Terraform Plan"
+  data:
+    name: "Apply Persistent Data Layer"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -86,54 +83,6 @@ jobs:
             terraform import aws_secretsmanager_secret.ecr_image_url "football-life/ecr-image-url" || true
           fi
 
-      - name: Terraform Plan
-        working-directory: ${{ env.TF_ROOT }}
-        run: terraform plan -out=tfplan -input=false
-
-      - name: Upload Plan Artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: data-tfplan
-          path: ${{ env.TF_ROOT }}/tfplan
-          retention-days: 5
-
-  # ──────────────────────────────────────────────
-  # 2. Apply (requires approval)
-  # ──────────────────────────────────────────────
-  apply:
-    name: "Terraform Apply"
-    needs: plan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          audience: sts.amazonaws.com
-          role-skip-session-tagging: true
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
-
-      - name: Terraform Init
-        working-directory: ${{ env.TF_ROOT }}
-        run: |
-          terraform init \
-            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
-            -backend-config="key=data/terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}"
-
-      - name: Download Plan Artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: data-tfplan
-          path: ${{ env.TF_ROOT }}
-
       - name: Terraform Apply
         working-directory: ${{ env.TF_ROOT }}
-        run: terraform apply -auto-approve -input=false tfplan
+        run: terraform apply -auto-approve -input=false
