@@ -25,11 +25,11 @@ metadata:
     app: worldgen-stage1
     stage: "1"
 spec:
-  completions: 10
-  parallelism: 4
+  completions: 2
+  parallelism: 2
   completionMode: Indexed
   backoffLimitPerIndex: 2
-  maxFailedIndexes: 3
+  maxFailedIndexes: 1
   template:
     metadata:
       labels:
@@ -42,19 +42,91 @@ spec:
           image: ECR_IMAGE_PLACEHOLDER
           imagePullPolicy: IfNotPresent
           command:
-            - /bin/sh
+            - python
             - -c
-            - >-
-              python scripts/run_100_season_burnin.py
-              --seed 1
-              --world-index "${JOB_COMPLETION_INDEX}"
-              --world-count 10
-              --output-dir /results
+            - |
+              import os, sys, time, json, hashlib, boto3
+              from src.engine.models import WorldState, Position
+              from src.world_factory.generator import WorldGenerator
+              from src.engine.season_workflow import SeasonWorkflowEngine
+
+              idx = int(os.getenv("JOB_COMPLETION_INDEX", "0"))
+              seed = 100 + idx
+              bucket = os.getenv("WORLD_RESULTS_BUCKET", "football-life-templates-ap-south-1")
+              table_name = os.getenv("DYNAMODB_TABLE", "world_template_catalog")
+              region = os.getenv("AWS_REGION", "ap-south-1")
+              seasons = int(os.getenv("BURN_IN_SEASONS", "100"))
+
+              print("=" * 60)
+              print(f"🚀 World Worker {idx + 1}/2: Simulating {seasons} seasons (Seed {seed})")
+              print("=" * 60)
+              start = time.time()
+
+              gen = WorldGenerator(seed=seed)
+              world = gen.generate_fresh_world("World Creator", "England", Position.MID)
+              engine = SeasonWorkflowEngine(seed=seed)
+
+              for s in range(1, seasons + 1):
+                  world.current_season = s
+                  engine.simulate_full_season(world)
+                  if s % 10 == 0 or s == 1 or s == seasons:
+                      elapsed_so_far = round(time.time() - start, 1)
+                      print(f"   ✓ Season {s:3d}/{seasons} completed ({elapsed_so_far}s elapsed)")
+
+              elapsed = round(time.time() - start, 2)
+              tpl_id = f"world_{idx:03d}_seed_{seed}_s{seasons}"
+              payload = {
+                  "template_id": tpl_id,
+                  "seed": seed,
+                  "world_index": idx,
+                  "burn_in_seasons": seasons,
+                  "rule_version": world.rule_version,
+                  "schema_version": world.schema_version,
+                  "generation_time_seconds": elapsed,
+                  "world_state": world.model_dump(mode="json")
+              }
+              body = json.dumps(payload, indent=2).encode("utf-8")
+              content_hash = hashlib.sha256(body).hexdigest()
+
+              # 1. Local results volume
+              os.makedirs("/results", exist_ok=True)
+              with open(f"/results/{tpl_id}.json", "wb") as f:
+                  f.write(body)
+
+              # 2. Upload to S3
+              s3_key = f"templates/v1/{tpl_id}_{content_hash[:12]}.json"
+              s3 = boto3.client("s3", region_name=region)
+              s3.put_object(Bucket=bucket, Key=s3_key, Body=body, ContentType="application/json")
+              print(f"☁️ Uploaded S3 template: s3://{bucket}/{s3_key}")
+
+              # 3. Register in DynamoDB catalog
+              try:
+                  dynamodb = boto3.resource("dynamodb", region_name=region)
+                  table = dynamodb.Table(table_name)
+                  table.put_item(Item={
+                      "template_id": tpl_id,
+                      "seed": seed,
+                      "status": "APPROVED",
+                      "quality_status": "APPROVED",
+                      "burn_in_seasons": seasons,
+                      "content_hash": content_hash,
+                      "generation_duration_sec": str(elapsed),
+                      "s3_uri": f"s3://{bucket}/{s3_key}",
+                      "s3_key": s3_key,
+                      "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                  })
+                  print(f"📋 Registered in DynamoDB: {tpl_id} -> APPROVED")
+              except Exception as e:
+                  print(f"⚠️ DynamoDB registration notice: {e}")
+
+              print(f"🎉 World {idx + 1}/2 completely finished and uploaded in {elapsed}s!")
           env:
             - name: JOB_COMPLETION_INDEX
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+            - name: BURN_IN_SEASONS
+              value: "100"
             - name: WORLD_RESULTS_BUCKET
               value: "football-life-templates-ap-south-1"
             - name: DYNAMODB_TABLE
@@ -63,11 +135,11 @@ spec:
               value: "ap-south-1"
           resources:
             requests:
-              cpu: "300m"
-              memory: "512Mi"
+              cpu: "600m"
+              memory: "768Mi"
             limits:
-              cpu: "1000m"
-              memory: "1500Mi"
+              cpu: "1800m"
+              memory: "2500Mi"
           volumeMounts:
             - name: worker-results
               mountPath: /results

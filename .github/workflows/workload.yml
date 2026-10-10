@@ -96,15 +96,37 @@ jobs:
           kubectl get jobs,pods -n worldgen -o wide >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
+          echo "### :clipboard: Job Details & Events" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          kubectl describe job worldgen-stage1 -n worldgen >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
           echo "### :satellite: Services & Load Balancers" >> $GITHUB_STEP_SUMMARY
           echo '```text' >> $GITHUB_STEP_SUMMARY
           kubectl get svc -n worldgen >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-      - name: Tail Simulation Pod Logs
-        if: inputs.action == 'apply' || inputs.action == 'logs'
-        run: |
-          echo "### :scroll: Simulation Burn-in Logs (sample)" >> $GITHUB_STEP_SUMMARY
+          echo "### :package: S3 Bucket Contents (templates & worlds)" >> $GITHUB_STEP_SUMMARY
           echo '```text' >> $GITHUB_STEP_SUMMARY
-          kubectl logs -n worldgen -l app=worldgen-stage1 --tail=50 >> $GITHUB_STEP_SUMMARY 2>&1 || echo "Pods still initializing..." >> $GITHUB_STEP_SUMMARY
+          aws s3 ls s3://football-life-templates-ap-south-1/ --recursive >> $GITHUB_STEP_SUMMARY 2>&1 || echo "Empty or cannot list" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### :card_index: DynamoDB Catalog Scan" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          aws dynamodb scan --table-name world_template_catalog --region ${{ env.AWS_REGION }} --max-items 10 >> $GITHUB_STEP_SUMMARY 2>&1 || echo "Empty or cannot scan" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Tail Simulation Pod Logs
+        run: |
+          echo "### :scroll: Simulation Burn-in Logs (all pods)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          for pod in $(kubectl get pods -n worldgen -l app=worldgen-stage1 -o jsonpath='{.items[*].metadata.name}'); do
+            echo "==========================================" >> $GITHUB_STEP_SUMMARY
+            echo "POD: $pod" >> $GITHUB_STEP_SUMMARY
+            echo "==========================================" >> $GITHUB_STEP_SUMMARY
+            kubectl logs -n worldgen "$pod" --tail=60 >> $GITHUB_STEP_SUMMARY 2>&1 || true
+            echo "--- (Previous container instance if crashed/restarted) ---" >> $GITHUB_STEP_SUMMARY
+            kubectl logs -n worldgen "$pod" --previous --tail=30 >> $GITHUB_STEP_SUMMARY 2>&1 || true
+            echo "" >> $GITHUB_STEP_SUMMARY
+          done
           echo '```' >> $GITHUB_STEP_SUMMARY
