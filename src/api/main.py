@@ -18,13 +18,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# In AWS Lambda, CORS is handled natively at the Function URL infrastructure layer (lambda.tf).
+# Emitting CORS headers from both FastAPI CORSMiddleware and AWS Lambda Function URL causes duplicate
+# 'Access-Control-Allow-Origin' headers, which browsers reject with net::ERR_FAILED.
+# We enable CORSMiddleware only in non-Lambda environments (e.g. local uvicorn development).
+if not os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 storage = get_storage_adapter()
 engine = SeasonWorkflowEngine(seed=42)
