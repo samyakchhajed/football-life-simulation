@@ -5,9 +5,7 @@
 locals {
   templates_bucket = var.templates_bucket_name != "" ? var.templates_bucket_name : "${var.project_name}-templates-${var.aws_region}"
   function_name    = "${var.project_name}-api-${var.environment}"
-  package_path     = var.lambda_package_path != "" ? var.lambda_package_path : (
-    fileexists("${path.module}/build/lambda_package.zip") ? "${path.module}/build/lambda_package.zip" : data.archive_file.lambda_fallback.output_path
-  )
+  package_path     = var.lambda_package_path != "" ? var.lambda_package_path : (fileexists("${path.module}/build/lambda_package.zip") ? "${path.module}/build/lambda_package.zip" : data.archive_file.lambda_fallback.output_path)
 }
 
 # ── Fallback Archive (Source Only, used when prebuilt package is absent) ──────
@@ -121,12 +119,12 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      TEMPLATES_S3_BUCKET     = local.templates_bucket
-      SAVES_S3_BUCKET         = local.templates_bucket
-      DYNAMODB_CATALOG_TABLE  = var.dynamodb_catalog_table_name
-      STORAGE_BACKEND         = "s3"
-      ENVIRONMENT             = var.environment
-      AWS_REGION_NAME         = var.aws_region
+      TEMPLATES_S3_BUCKET    = local.templates_bucket
+      SAVES_S3_BUCKET        = local.templates_bucket
+      DYNAMODB_CATALOG_TABLE = var.dynamodb_catalog_table_name
+      STORAGE_BACKEND        = "s3"
+      ENVIRONMENT            = var.environment
+      AWS_REGION_NAME        = var.aws_region
     }
   }
 

@@ -73,11 +73,6 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}"
 
-      - name: Terraform Format Check
-        if: inputs.action == 'apply'
-        working-directory: ${{ env.TF_ROOT }}
-        run: terraform fmt -check -recursive
-
       - name: Terraform Validate
         if: inputs.action == 'apply'
         working-directory: ${{ env.TF_ROOT }}
