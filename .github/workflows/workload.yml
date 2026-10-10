@@ -1,0 +1,103 @@
+# Layer 3 Workloads: Deploy World Generation Jobs and Coordinator on EKS
+# Runs on-demand via GitHub Actions OIDC to bypass local laptop and CloudShell constraints.
+
+name: "EKS — Run Batch Worldgen Jobs"
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform on EKS cluster"
+        required: true
+        type: choice
+        default: "apply"
+        options:
+          - apply
+          - status
+          - logs
+          - delete_jobs
+
+permissions:
+  id-token: write   # OIDC
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  CLUSTER_NAME: football-life-eks
+
+jobs:
+  run-workloads:
+    name: "Run Worldgen Workloads on EKS"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+          role-skip-session-tagging: true
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
+
+      - name: Connect to EKS Cluster
+        run: |
+          echo "Configuring kubeconfig for cluster ${{ env.CLUSTER_NAME }}..."
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
+          kubectl get nodes -o wide
+
+      - name: Resolve ECR Image URI
+        id: resolve-ecr
+        run: |
+          ECR_IMAGE=$(aws secretsmanager get-secret-value --secret-id football-life/ecr-image-url --query SecretString --output text --region ${{ env.AWS_REGION }}):latest
+          echo "IMAGE_URI=${ECR_IMAGE}" >> $GITHUB_ENV
+          echo "Resolved ECR worker image: ${ECR_IMAGE}"
+
+      - name: Deploy Coordinator & Stage 1 Jobs
+        if: inputs.action == 'apply'
+        run: |
+          echo "Deploying Coordinator Deployment & NLB Service..."
+          sed "s|\${{ secrets.ECR_IMAGE_URL }}|${IMAGE_URI}|g" k8s/worldgen/coordinator.yaml | kubectl apply -f -
+
+          echo "Deploying Stage 1 Indexed Job (10 Worlds, 4 parallel workers)..."
+          sed "s|\${{ secrets.ECR_IMAGE_URL }}|${IMAGE_URI}|g" k8s/worldgen/stage1.yaml | kubectl apply -f -
+
+          echo "Waiting 15s for pods to schedule..."
+          sleep 15
+
+      - name: Delete Jobs (if requested)
+        if: inputs.action == 'delete_jobs'
+        run: |
+          kubectl delete job worldgen-stage1 -n worldgen --ignore-not-found
+          kubectl delete job worldgen-stage2 -n worldgen --ignore-not-found
+
+      - name: Capture Cluster & Workload Status
+        run: |
+          echo "### :whale: EKS Nodes & Cluster Health" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          kubectl get nodes -o wide >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### :gear: Batch Jobs & Pod Status (namespace: worldgen)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          kubectl get jobs,pods -n worldgen -o wide >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          echo "### :satellite: Services & Load Balancers" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          kubectl get svc -n worldgen >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Tail Simulation Pod Logs
+        if: inputs.action == 'apply' || inputs.action == 'logs'
+        run: |
+          echo "### :scroll: Simulation Burn-in Logs (sample)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          kubectl logs -n worldgen -l app=worldgen-stage1 --tail=50 >> $GITHUB_STEP_SUMMARY 2>&1 || echo "Pods still initializing..." >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
