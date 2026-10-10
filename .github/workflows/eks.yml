@@ -30,11 +30,8 @@ env:
   TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE || 'football-life-tfstate-locks' }}
 
 jobs:
-  # ──────────────────────────────────────────────
-  # 1. Plan
-  # ──────────────────────────────────────────────
-  plan:
-    name: "Terraform Plan (${{ inputs.action }})"
+  eks:
+    name: "Terraform ${{ inputs.action }}"
     runs-on: ubuntu-latest
     steps:
       - name: Validate destroy confirmation
@@ -76,60 +73,12 @@ jobs:
         working-directory: ${{ env.TF_ROOT }}
         run: terraform validate
 
-      - name: Terraform Plan (apply)
+      - name: Terraform Apply
         if: inputs.action == 'apply'
         working-directory: ${{ env.TF_ROOT }}
-        run: terraform plan -out=tfplan -input=false -var="owner_iam_user_arn=${{ secrets.OWNER_IAM_USER_ARN || '' }}"
+        run: terraform apply -auto-approve -input=false -var="owner_iam_user_arn=${{ secrets.OWNER_IAM_USER_ARN || '' }}"
 
-      - name: Terraform Plan (destroy)
+      - name: Terraform Destroy
         if: inputs.action == 'destroy'
         working-directory: ${{ env.TF_ROOT }}
-        run: terraform plan -destroy -out=tfplan -input=false -var="owner_iam_user_arn=${{ secrets.OWNER_IAM_USER_ARN || '' }}"
-
-      - name: Upload Plan Artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: eks-tfplan
-          path: ${{ env.TF_ROOT }}/tfplan
-          retention-days: 5
-
-  # ──────────────────────────────────────────────
-  # 2. Apply / Destroy (requires approval)
-  # ──────────────────────────────────────────────
-  execute:
-    name: "Terraform ${{ inputs.action }}"
-    needs: plan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          audience: sts.amazonaws.com
-          role-skip-session-tagging: true
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
-
-      - name: Terraform Init
-        working-directory: ${{ env.TF_ROOT }}
-        run: |
-          terraform init \
-            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
-            -backend-config="key=eks/terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}"
-
-      - name: Download Plan Artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: eks-tfplan
-          path: ${{ env.TF_ROOT }}
-
-      - name: Terraform Apply
-        working-directory: ${{ env.TF_ROOT }}
-        run: terraform apply -auto-approve -input=false tfplan
+        run: terraform destroy -auto-approve -input=false -var="owner_iam_user_arn=${{ secrets.OWNER_IAM_USER_ARN || '' }}"
