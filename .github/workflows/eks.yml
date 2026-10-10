@@ -78,6 +78,18 @@ jobs:
         working-directory: ${{ env.TF_ROOT }}
         run: terraform apply -auto-approve -input=false -var="owner_iam_user_arn=${{ secrets.OWNER_IAM_USER_ARN || '' }}"
 
+      - name: Cleanup Kubernetes Load Balancers (Pre-Destroy)
+        if: inputs.action == 'destroy'
+        run: |
+          echo "Checking if EKS cluster is accessible for pre-destroy NLB cleanup..."
+          if aws eks describe-cluster --name football-life-eks --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "Configuring kubeconfig to drain external LoadBalancers..."
+            aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name football-life-eks || true
+            kubectl delete svc --all -n worldgen --timeout=60s || true
+            echo "Waiting 30s for AWS Network Load Balancer ENIs to detach from VPC subnets..."
+            sleep 30
+          fi
+
       - name: Terraform Destroy
         if: inputs.action == 'destroy'
         working-directory: ${{ env.TF_ROOT }}
