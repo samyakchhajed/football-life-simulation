@@ -63,11 +63,11 @@ spec:
               value: "ap-south-1"
           resources:
             requests:
-              cpu: "1500m"
-              memory: "4Gi"
+              cpu: "300m"
+              memory: "512Mi"
             limits:
-              cpu: "3000m"
-              memory: "8Gi"
+              cpu: "1000m"
+              memory: "1500Mi"
           volumeMounts:
             - name: worker-results
               mountPath: /results

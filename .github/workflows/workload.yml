@@ -65,8 +65,9 @@ jobs:
           echo "Ensuring 'worldgen' namespace exists..."
           kubectl create namespace worldgen --dry-run=client -o yaml | kubectl apply -f -
 
-          # Clear any old job that had invalid image name
+          # Clear any old job or stuck pods that had invalid image name / inflated requests
           kubectl delete job worldgen-stage1 -n worldgen --ignore-not-found
+          kubectl delete pod -n worldgen -l app=worldgen-coordinator --field-selector=status.phase!=Running --ignore-not-found || true
 
           echo "Deploying Stage 1 Indexed Job (creates ServiceAccount & 10 World Workers)..."
           sed "s|ECR_IMAGE_PLACEHOLDER|${IMAGE_URI}|g" k8s/worldgen/stage1.yaml | kubectl apply -f -
@@ -74,8 +75,8 @@ jobs:
           echo "Deploying Coordinator Deployment & NLB Service..."
           sed "s|ECR_IMAGE_PLACEHOLDER|${IMAGE_URI}|g" k8s/worldgen/coordinator.yaml | kubectl apply -f -
 
-          echo "Waiting 20s for pods to schedule and pull image..."
-          sleep 20
+          echo "Waiting 30s for pods to schedule, pull image, and begin simulation..."
+          sleep 30
 
       - name: Delete Jobs (if requested)
         if: inputs.action == 'delete_jobs'
