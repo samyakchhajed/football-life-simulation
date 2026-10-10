@@ -14,11 +14,25 @@ class TemplateManager:
     Manages the pool of pre-simulated world templates.
     Enables instant onboarding from mature, equilibrium world templates with genuine histories.
     """
-    def __init__(self, templates_dir: str = TEMPLATES_DIR):
-        self.templates_dir = templates_dir
-        self.search_dirs = [self.templates_dir, "data/templates", ".local_data/templates"]
+    def __init__(self, templates_dir: Optional[str] = None):
+        is_lambda = "AWS_LAMBDA_FUNCTION_NAME" in os.environ or "LAMBDA_TASK_ROOT" in os.environ
+        if templates_dir:
+            self.templates_dir = templates_dir
+        elif is_lambda:
+            self.templates_dir = "/tmp/templates"
+        else:
+            self.templates_dir = TEMPLATES_DIR
+
+        if is_lambda:
+            self.search_dirs = [self.templates_dir, "data/templates"]
+        else:
+            self.search_dirs = [self.templates_dir, "data/templates", ".local_data/templates"]
+
         for d in self.search_dirs:
-            os.makedirs(d, exist_ok=True)
+            try:
+                os.makedirs(d, exist_ok=True)
+            except OSError:
+                pass
 
     def list_templates(self) -> List[Dict[str, Any]]:
         templates = []
@@ -195,14 +209,14 @@ class TemplateManager:
                         except Exception:
                             continue
 
-            if not tpl_data:
-                tpl_info = self.get_or_create_template(seed=rng_seed or 42)
-                fp = tpl_info.get("file_path", os.path.join(self.templates_dir, f"{tpl_info['template_id']}.json"))
-                if os.path.exists(fp):
-                    with open(fp, "r", encoding="utf-8") as f:
-                        tpl_data = json.load(f)
-                else:
-                    tpl_data = {"world_state": {}}
+            if not tpl_data or not tpl_data.get("world_state"):
+                # If no pre-simulated template is found yet, generate a Day-0 initialized world instantly
+                gen = WorldGenerator(seed=rng_seed or 42)
+                return gen.generate_fresh_world(
+                    user_name=user_name,
+                    user_country=user_country,
+                    user_position=user_position
+                )
 
         raw_world = tpl_data.get("world_state", {})
         world = WorldState.model_validate(raw_world)

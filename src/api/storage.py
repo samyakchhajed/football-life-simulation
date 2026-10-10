@@ -12,9 +12,12 @@ SAVES_DIR = LOCAL_DATA_DIR / "saves"
 
 class LocalStorageAdapter:
     def __init__(self):
-        WORLDS_DIR.mkdir(parents=True, exist_ok=True)
-        SCREENS_DIR.mkdir(parents=True, exist_ok=True)
-        SAVES_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            WORLDS_DIR.mkdir(parents=True, exist_ok=True)
+            SCREENS_DIR.mkdir(parents=True, exist_ok=True)
+            SAVES_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
 
     def save_world(self, world: WorldState) -> str:
         """Saves current world state and creates versioned history snapshot"""
