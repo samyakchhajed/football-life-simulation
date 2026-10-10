@@ -21,7 +21,7 @@ spec:
       serviceAccountName: worldgen-worker
       containers:
         - name: coordinator
-          image: ${{ secrets.ECR_IMAGE_URL }}
+          image: ECR_IMAGE_PLACEHOLDER
           imagePullPolicy: IfNotPresent
           command:
             - python

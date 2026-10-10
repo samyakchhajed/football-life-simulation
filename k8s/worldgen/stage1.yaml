@@ -39,7 +39,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: world-worker
-          image: ${{ secrets.ECR_IMAGE_URL }}
+          image: ECR_IMAGE_PLACEHOLDER
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
