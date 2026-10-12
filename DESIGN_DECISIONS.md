@@ -1,6 +1,9 @@
-# Architectural Design Decisions — The Football Life Engine
+# Architectural Design Decisions — football-life-simulation
 
-This document records every significant architectural, simulation, data-plane, and cloud engineering decision made for **The Football Life Engine**. It details what was chosen, what was explicitly rejected, and the technical rationale behind each decision.
+This document records every significant architectural, simulation, data-plane, and cloud engineering decision made for **football-life-simulation**. It details what was chosen, what was explicitly rejected, and the technical rationale behind each decision.
+
+> **Architecture Status:** **FULLY IMPLEMENTED & VALIDATED (DONE)**  
+> All design decisions across Track A (Deterministic Poisson Engine, 8-Stop Workflow, 10-League Ecosystem, Integrity Gates) and Track B (4-Layer Terraform Architecture, 6 Decoupled CI/CD Workflows, AWS Lambda Function URL, EKS Indexed Batch Jobs) have been successfully built, deployed, and proven in production.
 
 ---
 
@@ -306,13 +309,13 @@ This document records every significant architectural, simulation, data-plane, a
 - **Sizing Analysis:** Even the largest stage screen (Stage 4 Awards Gala across 10 leagues, 10 TOTS XIs, Continental Best XI, and World Dream XI containing ~200 player summary objects) produces an uncompressed JSON payload of **$\sim 65 - 90\text{ KB}$**, occupying only $\sim 20\%$ of DynamoDB's 400 KB item limit.
 - **Rationale:** Guarantees O(1) single-read screen latency with zero DynamoDB item size overflow risk.
 
-### Decision: AWS-managed EKS for the 100-World Factory
-- **Chosen:** AWS-managed EKS runs an indexed Kubernetes Job with 100 completions. Each worker generates exactly one independent 100-season world using `base_seed + world_index`, validates it, and publishes its result metadata. Kubernetes jobs and supporting services provide the execution surface for observability and scaling experiments.
-- **Rejected:** ECS/Fargate, Step Functions, and short-lived one-off batch tasks as the primary platform for the Kubernetes experiment.
+### Decision: AWS-managed EKS for 100-Season Batch World Generation
+- **Chosen:** AWS-managed EKS runs indexed Kubernetes Jobs executing deep 100-season deterministic simulations (383,100 matches per world across 10 global leagues). Each worker pod generates an independent world using `base_seed + world_index`, validates all statistical quality gates, and uploads the verified template to S3. To eliminate EC2 CPU credit exhaustion and memory contention across 2 $\times$ `t3.medium` nodes, Stage 1 is right-sized to 2 worlds running on dedicated 1-pod-per-node compute resources (600m–1800m CPU, 768Mi–2500Mi RAM).
+- **Rejected:** ECS/Fargate, Step Functions, or running oversized pod batches that stall on limited burstable node memory.
 - **Rationale:**
-  - **Meaningful Kubernetes Workload:** One hundred independent burn-ins are long-running enough to justify cluster scheduling, workload metrics, worker pressure, and controlled scaling.
-  - **Cloud Execution:** The laptop is not suitable for Kubernetes or heavy simulation workloads, so the cluster and observability stack run in AWS.
-  - **Controlled Cost:** The cluster is created for bounded experiments, all 100 results are accounted for, evidence is exported, and unused resources are torn down.
+  - **Meaningful Kubernetes Workload:** 100 seasons of Poisson simulation take ~4–5 minutes of continuous CPU compute per world, justifying cluster scheduling, workload metrics, and worker pressure.
+  - **Cloud Execution:** The laptop is not tied up running multi-world batch burn-ins; the cluster handles batch generation and publishes immutable artifacts to S3.
+  - **Controlled Cost:** The cluster is created on-demand, both 100-season world results are verified in S3, and EKS is torn down post-generation to stop hourly spend.
 
 ### Decision: S3 Object Versioning for Point-in-Time World State Restores
 - **Chosen:** The live world state is stored as a single JSON document (`world_state.json`) in an Amazon S3 bucket with Object Versioning enabled. Every simulated season creates a new immutable version.
@@ -322,11 +325,13 @@ This document records every significant architectural, simulation, data-plane, a
   - **Zero Schema Migration Overhead:** Save files are immutable snapshots that cleanly enforce rule and schema version boundaries.
 
 ### Decision: Terraform and GitHub Actions for Infrastructure and Delivery
-- **Chosen:** Terraform provisions AWS infrastructure across 4 isolated layers (`bootstrap`, `data`, `eks`, `webapp`), and GitHub Actions runs infrastructure operations and container image publishing through 4 decoupled manual workflows:
-  - `data.yml`: Persistent data apply-only pipeline (fmt, validate, plan, approval-gated apply). No destroy path to guarantee persistent world templates are never wiped.
+- **Chosen:** Terraform provisions AWS infrastructure across 4 isolated layers (`bootstrap`, `data`, `eks`, `webapp`), and GitHub Actions runs infrastructure operations, container publishing, and workload execution through 6 decoupled manual workflows:
+  - `bootstrap.yml`: One-time setup of remote Terraform state S3 bucket (`football-life-tfstate-ap-south-1`) and DynamoDB lock table (`football-life-tfstate-locks`).
+  - `data.yml`: Layer 2 persistent data infrastructure apply-only pipeline (S3 template bucket, DynamoDB template catalog table, ECR repository, Secrets Manager secret). Apply-only; no destroy path to guarantee persistent world templates and saves are never wiped.
   - `image.yml`: Worker container build and publish to ECR with dual tagging (`sha-<commit>` for exact git traceability, `latest` for operational convenience).
-  - `eks.yml`: EKS infrastructure apply/destroy with production environment approval gates and typed `DESTROY` confirmation.
-  - `webapp.yml`: Web app runtime apply/destroy with identical approval and typed confirmation protection.
+  - `eks.yml`: Layer 3 EKS infrastructure apply/destroy with VPC, subnets, NAT gateway, EKS cluster (`football-life-eks`), managed node group, and typed `DESTROY` confirmation protection.
+  - `webapp.yml`: Layer 4 web app runtime apply/destroy (FastAPI Lambda Function URL + S3 static website hosting) with typed `DESTROY` confirmation.
+  - `workload.yml`: Layer 3 automated workload orchestrator; runs batch jobs (`stage1.yaml`), deploys Coordinator Deployment and Network Load Balancer (`coordinator.yaml`), and captures live cluster health and logs via OIDC.
   - **Authentication:** Single shared IAM role (`secrets.AWS_OIDC_ROLE_ARN`) assumed via keyless GitHub Actions OIDC (`aws-actions/configure-aws-credentials@v6`) without long-lived credentials. All AWS ARNs (including `secrets.OWNER_IAM_USER_ARN`) are managed strictly as GitHub Secrets.
   - **Triggering:** Manual-only execution (`workflow_dispatch`); no unreviewed automated pushes.
 - **Rejected:** Monolithic all-in-one deploy script, AWS CodeCommit/CodeBuild (quota constraints), AWS CDK as primary IaC, single-tag container deployments, and storing static AWS credentials in repository secrets.
@@ -340,7 +345,7 @@ This document records every significant architectural, simulation, data-plane, a
 
 ### Decision: Two-Tier Storage Architecture (Persistent Templates vs Local Session Cache)
 - **Chosen:** A clean separation of data concerns into two specialized storage tiers:
-  1. **Persistent Template Repository (`data/templates/`):** Houses the canonical 100-season burned-in world template files (`*.json`). In AWS deployment, this maps to the root immutable Amazon S3 bucket (`s3://.../templates/`). These templates allow instant Day-0 career cloning without re-computing 100 seasons on the fly.
+  1. **Persistent Template Repository (`data/templates/`):** Houses the canonical 100-season burned-in world template files (`*.json`). In AWS deployment, this maps to the root immutable Amazon S3 bucket (`s3://football-life-templates-ap-south-1/templates/v1/`). These templates allow instant Day-0 career cloning without re-computing 100 seasons on the fly.
   2. **Local Session Cache (`.local_data/`):** Houses transient local browser session states managed by `LocalStorageAdapter` (`.local_data/worlds/`, `.local_data/screens/`, `.local_data/saves/`). In AWS deployment, this maps to DynamoDB screen caches and user save points.
 - **Rejected:** Mingling transient browser session snapshots directly inside the persistent template repository.
 - **Rationale:**
@@ -356,7 +361,7 @@ This document records every significant architectural, simulation, data-plane, a
     - `generation_duration_sec` (`Number` burn-in execution duration, typically $\sim 190 - 240\text{ s}$)
     - `quality_gate_results` (`Map` containing booleans and metrics for Gates 1–12)
     - `status` (`String`, enum: `APPROVED` | `REJECTED`)
-    - `s3_uri` (`String`, e.g. `s3://football-sim-templates/world_template_seed42_100seasons.json`)
+    - `s3_uri` (`String`, e.g. `s3://football-life-templates-ap-south-1/templates/v1/world_template_seed100_100seasons.json`)
     - `created_at` (`String` ISO-8601 UTC timestamp)
 - **Rationale:** Enables instant, indexed querying and filtering of approved equilibrium templates with verified cryptographic integrity hashes before loading state into user sessions.
 
@@ -389,11 +394,11 @@ This document records every significant architectural, simulation, data-plane, a
 
 These decisions supersede earlier drafts and are the current source of truth:
 
-- **Compute:** AWS-managed EKS is the single cloud environment for the indexed 100-world generation and analysis workload.
+- **Compute:** AWS-managed EKS is the single cloud environment for the indexed 100-season world generation and analysis workload.
 - **Infrastructure:** Terraform is the infrastructure-as-code tool, with separate bootstrap state where required.
 - **Delivery:** GitHub Actions is the CI/CD system and uses repository-scoped AWS OIDC authentication.
 - **Identity:** Login, Cognito, passwords, and user accounts are outside the project scope. Worlds are identified without authentication.
 - **Kubernetes experiments:** Only project-supporting experiments remain, especially continuous workloads, observability, scaling, recovery, and cost-controlled teardown.
 - **Region:** AWS Mumbai (`ap-south-1`) is used for project resources.
 - **Execution order:** Local simulation and quality validation come first; cloud deployment follows after the local behavior is understood.
-- **Local boundary:** The laptop runs one indexed worker only. It is not used to generate the complete 100-world batch.
+- **Local boundary:** The laptop runs one indexed worker only. It is not used to generate the complete 100-season batch.
