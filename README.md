@@ -42,7 +42,7 @@ Infrastructure and workloads are managed through 6 manual GitHub Actions workflo
 
 ## 3. Key DevOps & Cloud Engineering Takeaways
 
-Building and running this dual-track platform produced several valuable cloud engineering solutions (detailed in [DEPLOYMENT.md](DEPLOYMENT.md) and [MAJOR_ERRORS.md](MAJOR_ERRORS.md)):
+Building and running this dual-track platform produced several valuable cloud engineering solutions (detailed in [DEPLOYMENT.md](DEPLOYMENT.md)):
 
 * **Keyless OIDC Identity Federation:** Eliminated static credentials using `sts:AssumeRoleWithWebIdentity`, properly handling `sts:TagSession` and GitHub's numeric repository subject IDs (`repo:...@id/...@*:ref:...`).
 * **Multi-Layer State Isolation:** Split Terraform into 4 decoupled state files (`bootstrap`, `data`, `eks`, `webapp`) so destroying experimental EKS compute never impacts persistent templates or career saves.
@@ -103,6 +103,5 @@ football-life-simulation/
 ├── DESIGN_DECISIONS.md            # Comprehensive Architecture Decision Records (ADRs)
 ├── DEVELOPMENT.md                 # Track A local setup guide, Poisson mechanics, and quality gates
 ├── DEPLOYMENT.md                  # Track B cloud infrastructure runbook and failure analysis
-├── MAJOR_ERRORS.md                # 8 most common CI/CD, Terraform, K8s, and Serverless errors & fixes
 └── README.md                      # Primary project overview
 ```
